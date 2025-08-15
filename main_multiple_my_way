@@ -1,0 +1,9 @@
+from langchain_huggingface import HuggingFacePipeline
+from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
+import torch
+
+
+llm_summary = HuggingFacePipeline.from_model_id(
+    model_id="gpt2",
+    task="text"
+)
