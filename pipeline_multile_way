@@ -3,56 +3,59 @@
 
 from langchain_huggingface import HuggingFacePipeline
 from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
+from langchain.prompts import PromptTemplate
 import torch
 
 # --- 1. Using HuggingFacePipeline.from_model_id (the easy way) ---
 # This is like buying the pre-assembled coffee machine.
 # You tell LangChain the model ID and the task, and it sets up the pipeline for you.
-print("--- Using HuggingFacePipeline.from_model_id ---")
-try:
-    llm_easy = HuggingFacePipeline.from_model_id(
-        model_id="gpt2",                  # The name of the model on Hugging Face Hub
-        task="text-generation",           # What the model should do
-        pipeline_kwargs={
-            "max_new_tokens": 50,         # Limit the length of the generated text
-            "temperature": 0.7            # How creative/random the output is
-        },
-        # You can add model_kwargs for more specific model loading (e.g., for quantization)
-        # model_kwargs={"torch_dtype": torch.float16}
-    )
-    response_easy = llm_easy.invoke("Once upon a time, in a land far away,")
-    print(f"Response (from_model_id): {response_easy}")
-except Exception as e:
-    print(f"Error with from_model_id: {e}")
-    print("This might happen if you don't have enough memory or if the model cannot be loaded easily.")
 
+llm_summarization = HuggingFacePipeline.from_model_id(
+    model_id="facebook/bart-large-cnn",
+    task="summarization",
+    device=0
+)
 
-print("\n--- Using HuggingFacePipeline (the custom way) ---")
-# --- 2. Using HuggingFacePipeline (the custom assembly way) ---
-# This is like assembling the coffee machine yourself.
-# You explicitly create the Hugging Face pipeline first, then pass it to LangChain.
-try:
-    model_name = "gpt2"
+llm_refinement = HuggingFacePipeline.from_model_id(
+    model_id="facebook/bart-large",
+    task="summarization",
+    device=0
+)
 
-    # Load tokenizer and model manually
-    custom_tokenizer = AutoTokenizer.from_pretrained(model_name)
-    custom_model = AutoModelForCausalLM.from_pretrained(model_name)
+qa_pipeline = pipeline("question-answering",
+                       model="deepset/roberta-base-squad2", device=0)
 
-    # Create the Hugging Face pipeline with your custom components/settings
-    custom_pipe = pipeline(
-        "text-generation",
-        model=custom_model,
-        tokenizer=custom_tokenizer,
-        max_new_tokens=50,
-        temperature=0.7,
-        device=0 if torch.cuda.is_available() else -1  # Specify device (GPU 0 or CPU)
-    )
+summary_template = PromptTemplate.from_template(
+    "Summarize the following text in a {length} way:\n\n{text}")
 
-    # Pass your custom pipeline to HuggingFacePipeline
-    llm_custom = HuggingFacePipeline(pipeline=custom_pipe)
-    response_custom = llm_custom.invoke("The quick brown fox jumps over")
-    print(f"Response (custom pipeline): {response_custom}")
+summarization_chain = summary_template | llm_summarization | llm_refinement
 
-except Exception as e:
-    print(f"Error with direct HuggingFacePipeline: {e}")
-    print("This might happen if you don't have enough memory or if there's an issue with the manual pipeline setup.")
+# Ask the user for the text they want summarized
+text_to_summarize = input("\nEnter text to summarize:\n")
+
+# Ask the user for desired summary length
+length = input("\nEnter the length (short/medium/long): ")
+
+summary = summarization_chain.invoke(
+    {"text": text_to_summarize, "length": length})
+
+# Print the generated summary
+print("\n🔹 **Generated Summary:**")
+print(summary)
+
+# Interactive loop for asking questions about the summary
+while True:
+    # Ask user for a question
+    question = input(
+        "\nAsk a question about the summary (or type 'exit' to stop):\n")
+
+    # Exit condition
+    if question.lower() == "exit":
+        break
+
+    # Pass the question and summary as context into the QA pipeline
+    qa_result = qa_pipeline(question=question, context=summary)
+
+    # Display the answer extracted from the summary
+    print("\n🔹 **Answer:**")
+    print(qa_result["answer"])
